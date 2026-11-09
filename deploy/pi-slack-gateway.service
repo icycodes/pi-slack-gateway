@@ -1,0 +1,31 @@
+# systemd user unit. Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/pi-slack-gateway.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now pi-slack-gateway
+#   sudo loginctl enable-linger "$USER"     # keep running without an active login
+# Logs: journalctl --user -u pi-slack-gateway -f
+#
+# Adjust WorkingDirectory and PATH if your checkout or Node install differ.
+# PATH must contain `node` (>= 22.18) and `pi`.
+
+[Unit]
+Description=Pi coding agent Slack gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/github/pi-slack-gateway
+Environment=PATH=%h/.local/bin:%h/.local/share/fnm/aliases/default/bin:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+EnvironmentFile=%h/.config/pi-slack-gateway/env
+ExecStart=/usr/bin/env node src/main.ts
+Restart=always
+RestartSec=5
+# Let the gateway stop pi children gracefully (they get SIGTERM after stdin closes).
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

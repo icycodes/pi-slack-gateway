@@ -1,0 +1,16 @@
+{
+  "allowedUsers": ["U0123456789"],
+  "allowedRoots": ["~"],
+  "dm": { "cwd": "~" },
+  "channels": {
+    "C0123456789": "~/github/some-repo",
+    "C0987654321": { "cwd": "~/github/other-repo", "model": "kumo/deepseek-4.1-flash", "thinking": "medium" }
+  },
+  "pi": {
+    "command": "pi",
+    "args": []
+  },
+  "notify": "warnings",
+  "statusDelayMs": 4000,
+  "statusIntervalMs": 5000
+}

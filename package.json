@@ -1,0 +1,26 @@
+{
+  "name": "pi-slack-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Always-on Slack gateway for the Pi coding agent: one long-lived `pi --mode rpc` per DM/channel binding.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "bin": {
+    "pi-slack-gateway": "src/main.ts"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "check": "tsc -p .",
+    "test": "LOG_LEVEL=error node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@slack/bolt": "^4.7.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
+  }
+}
