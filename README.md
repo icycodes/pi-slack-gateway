@@ -1,6 +1,6 @@
 # pi-slack-gateway
 
-Always-on Slack front end for the [Pi coding agent](https://github.com/earendil-works/pi).
+Always-on Slack front end for the [Pi coding agent](https://github.com/earendil-works/pi) ([`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)).
 Runs on your server as a single service and keeps one long-lived `pi --mode rpc`
 process per *binding*:
 
@@ -47,9 +47,27 @@ flowchart LR
 
 ## Requirements
 
-- Node.js ≥ 22.18 (runs the TypeScript sources directly; no build step)
-- `pi` on `PATH`, already configured (`~/.pi/agent/settings.json`, provider auth) and
-  with `pi-subagents` installed (`pi install npm:pi-subagents`) for the manager workflow
+> **Node.js ≥ 22.18 is required.** The git-clone path runs the TypeScript sources
+> directly, which needs Node ≥ 22.18; the npm package ships the same floor. (The `pi`
+> CLI itself currently declares Node ≥ 22.19, so in practice use 22.19 or newer.)
+
+- Node.js ≥ 22.18
+- `pi` ([`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent))
+  on `PATH`: `npm install -g @earendil-works/pi-coding-agent`. It must already be
+  configured (`~/.pi/agent/settings.json`, provider auth) and have `pi-subagents`
+  installed (`pi install npm:pi-subagents`) for the manager workflow.
+
+## Two ways to install
+
+| | git clone | npm package |
+| --- | --- | --- |
+| build step | none: runs `src/main.ts` directly (Node type stripping) | none for you: ships prebuilt `dist/*.js` |
+| command | `npm start` / `node src/main.ts` | `pi-slack-gateway` (or `npx pi-slack-gateway`) |
+| use it for | development, hacking on the gateway | running it as a service |
+
+Node refuses to type-strip files under `node_modules`, which is why the npm package
+contains compiled JavaScript instead of the `.ts` sources. Both paths run the same
+code.
 
 ## Setup
 
@@ -59,9 +77,23 @@ flowchart LR
    - *Install App*: install to the workspace → `SLACK_BOT_TOKEN` (`xoxb-…`)
    - find your member ID (profile → ⋮ → *Copy member ID*) for `allowedUsers`
 
-2. **Install**
+2. **Install** (pick one)
+
+   *From npm:*
    ```sh
-   git clone <this repo> ~/github/pi-slack-gateway && cd ~/github/pi-slack-gateway
+   npm install -g pi-slack-gateway
+   mkdir -p ~/.config/pi-slack-gateway
+   cp "$(npm root -g)/pi-slack-gateway/deploy/config.example.json" ~/.config/pi-slack-gateway/config.json   # edit it
+   install -m 600 "$(npm root -g)/pi-slack-gateway/deploy/env.example" ~/.config/pi-slack-gateway/env      # add the tokens
+   ```
+   The `deploy/` files (config and env examples, systemd unit, Slack manifest) live in
+   `$(npm root -g)/pi-slack-gateway/deploy/`. Without a global install,
+   `npx pi-slack-gateway` runs it once; fetch the `deploy/` files from the
+   [repository](https://github.com/icycodes/pi-slack-gateway/tree/main/deploy).
+
+   *From git (no build step):*
+   ```sh
+   git clone https://github.com/icycodes/pi-slack-gateway.git ~/github/pi-slack-gateway && cd ~/github/pi-slack-gateway
    npm ci --omit=dev
    mkdir -p ~/.config/pi-slack-gateway
    cp deploy/config.example.json ~/.config/pi-slack-gateway/config.json   # edit it
@@ -71,20 +103,24 @@ flowchart LR
 3. **Try it in the foreground**
    ```sh
    set -a; . ~/.config/pi-slack-gateway/env; set +a
-   npm start
+   pi-slack-gateway          # npm install
+   npm start                 # git clone, from the checkout
    ```
    DM the bot. To use a channel: invite the bot (`/invite @pi`), then send
    `!bind ~/github/my-repo` there (or list the channel ID in `config.json`).
 
 4. **Run as a service** (systemd user unit, survives logout with linger)
    ```sh
-   cp deploy/pi-slack-gateway.service ~/.config/systemd/user/
+   cp deploy/pi-slack-gateway.service ~/.config/systemd/user/   # npm install: "$(npm root -g)/pi-slack-gateway/deploy/pi-slack-gateway.service"
    systemctl --user daemon-reload
    systemctl --user enable --now pi-slack-gateway
    sudo loginctl enable-linger "$USER"
    journalctl --user -u pi-slack-gateway -f
    ```
-   Check `PATH` in the unit: it must contain `node` and `pi`.
+   Check `PATH` in the unit: it must contain `node` and `pi`. The unit is written for the
+   git checkout (`WorkingDirectory=…/pi-slack-gateway`, `ExecStart=/usr/bin/env node src/main.ts`);
+   for an npm install, remove `WorkingDirectory` and set `ExecStart=/usr/bin/env pi-slack-gateway`
+   (with the global npm `bin` directory on `PATH`).
 
 ## Configuration
 
@@ -116,10 +152,16 @@ the environment passed to pi.
 
 ```sh
 npm install
-npm run check        # tsc
+npm run check        # tsc (type-check only)
 npm test             # node:test, uses a scripted fake pi (test/fixtures/fake-pi.ts)
 node scripts/console.ts ~/some/dir   # drive one binding from the terminal with the real pi
+npm run build        # compile src/ to dist/ (only needed for publishing; wipes dist/ first)
+npm run pack:check   # build, then dry-run `npm pack` to list the tarball contents
 ```
+
+Tests and `npm start` run the TypeScript sources and never need `dist/`. The published
+package contains `bin/` (a small plain-JS launcher that checks the Node version before
+loading the app), `dist/`, `prompts/` and `deploy/`.
 
 Source map: `src/main.ts` (entry), `src/slack.ts` (Bolt adapter), `src/gateway.ts`
 (routing, `!bind`, attachments), `src/session.ts` (one pi process per binding: runs,

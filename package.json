@@ -1,20 +1,42 @@
 {
   "name": "pi-slack-gateway",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.0-beta",
   "description": "Always-on Slack gateway for the Pi coding agent: one long-lived `pi --mode rpc` per DM/channel binding.",
+  "keywords": [
+    "slack",
+    "pi",
+    "ai agent",
+    "coding agent",
+    "bot",
+    "rpc",
+    "gateway",
+    "socket-mode",
+    "automation"
+  ],
+  "author": "icycodes",
+  "homepage": "https://github.com/icycodes/pi-slack-gateway#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/icycodes/pi-slack-gateway.git"
+  },
+  "bugs": {
+    "url": "https://github.com/icycodes/pi-slack-gateway/issues"
+  },
   "type": "module",
   "license": "MIT",
   "engines": {
     "node": ">=22.18"
   },
   "bin": {
-    "pi-slack-gateway": "src/main.ts"
+    "pi-slack-gateway": "bin/pi-slack-gateway.cjs"
   },
   "scripts": {
     "start": "node src/main.ts",
     "check": "tsc -p .",
-    "test": "LOG_LEVEL=error node --test test/*.test.ts"
+    "test": "LOG_LEVEL=error node --test test/*.test.ts",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "pack:check": "npm run build && npm pack --dry-run",
+    "prepublishOnly": "npm run check && npm test && npm run build"
   },
   "dependencies": {
     "@slack/bolt": "^4.7.3"
@@ -22,5 +44,11 @@
   "devDependencies": {
     "@types/node": "^22.20.5",
     "typescript": "^5.9.3"
-  }
+  },
+  "files": [
+    "bin",
+    "dist",
+    "prompts",
+    "deploy"
+  ]
 }
