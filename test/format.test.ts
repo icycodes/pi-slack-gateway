@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { describeTool, formatDuration, messageText, parseSubagentSnapshot, slackToPlain, splitMarkdown } from "../src/format.ts";
+import { describeTool, formatDuration, messageText, parseSendFileDirectives, parseSubagentSnapshot, slackToPlain, splitMarkdown } from "../src/format.ts";
 
 describe("splitMarkdown", () => {
   it("returns short text unchanged", () => {
@@ -76,5 +76,60 @@ describe("misc", () => {
       messageText({ role: "assistant", content: [{ type: "thinking", thinking: "x" }, { type: "text", text: "a" }, { type: "toolCall" }, { type: "text", text: "b" }] }),
       "a\n\nb",
     );
+  });
+});
+
+describe("parseSendFileDirectives", () => {
+  it("returns text unchanged when there are no directives", () => {
+    const text = "  hello\n\nworld  ";
+    assert.deepEqual(parseSendFileDirectives(text), { files: [], text });
+  });
+
+  it("extracts one directive and removes its line", () => {
+    assert.deepEqual(parseSendFileDirectives("Here is the page:\n[send-file: /tmp/shot.png]\nLooks fine."), {
+      files: [{ path: "/tmp/shot.png" }],
+      text: "Here is the page:\nLooks fine.",
+    });
+  });
+
+  it("handles multiple directives in order", () => {
+    const r = parseSendFileDirectives("[send-file: /a.png]\ntwo shots\n  [send-file: ~/b.png]");
+    assert.deepEqual(r.files, [{ path: "/a.png" }, { path: "~/b.png" }]);
+    assert.equal(r.text, "two shots");
+  });
+
+  it("captures an optional caption", () => {
+    assert.deepEqual(parseSendFileDirectives("[send-file: /tmp/shot.png] Login page after the fix").files, [
+      { path: "/tmp/shot.png", caption: "Login page after the fix" },
+    ]);
+  });
+
+  it("strips backticks around the path", () => {
+    assert.deepEqual(parseSendFileDirectives("[send-file: `/tmp/shot.png`]").files, [{ path: "/tmp/shot.png" }]);
+  });
+
+  it("keeps spaces inside the path", () => {
+    assert.deepEqual(parseSendFileDirectives("[send-file: /tmp/my shots/page 1.png] caption").files, [
+      { path: "/tmp/my shots/page 1.png", caption: "caption" },
+    ]);
+  });
+
+  it("only matches directives at the start of a line", () => {
+    const text = "See [send-file: /tmp/x.png] for details";
+    assert.deepEqual(parseSendFileDirectives(text), { files: [], text });
+  });
+
+  it("returns empty text when only directives remain", () => {
+    assert.deepEqual(parseSendFileDirectives("\n[send-file: /tmp/x.png]\n\n"), { files: [{ path: "/tmp/x.png" }], text: "" });
+  });
+
+  it("does not match an unclosed directive", () => {
+    const text = "[send-file: /tmp/x.png is what I would use";
+    assert.deepEqual(parseSendFileDirectives(text), { files: [], text });
+  });
+
+  it("ignores directives inside fenced code blocks", () => {
+    const text = "Syntax:\n```\n[send-file: /path/shot.png]\n```";
+    assert.deepEqual(parseSendFileDirectives(text), { files: [], text });
   });
 });

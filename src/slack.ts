@@ -1,5 +1,6 @@
-/** Slack adapter: Socket Mode (no public URL), Block Kit markdown, reactions, buttons, file downloads. */
-import { createWriteStream } from "node:fs";
+/** Slack adapter: Socket Mode (no public URL), Block Kit markdown, reactions, buttons, file downloads and uploads. */
+import { createReadStream, createWriteStream } from "node:fs";
+import { basename } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
@@ -7,7 +8,7 @@ import { App, type BlockAction, type ButtonAction, LogLevel } from "@slack/bolt"
 import { splitMarkdown, truncate } from "./format.ts";
 import type { ChatPlatform, InboundEvent, InboundFile } from "./gateway.ts";
 import type { Logger } from "./log.ts";
-import type { ChatSink, DialogButton, PostOptions } from "./session.ts";
+import type { ChatSink, DialogButton, PostOptions, UploadOptions } from "./session.ts";
 
 export interface SlackOptions {
   botToken: string;
@@ -210,6 +211,21 @@ export class SlackPlatform implements ChatPlatform {
         await client.reactions.remove({ channel, timestamp: ts, name: emoji }).catch((e: unknown) => {
           if (slackError(e) !== "no_reaction") log.warn("unreact failed", { emoji, error: slackError(e) ?? String(e) });
         });
+      },
+      uploadFile: async (path: string, opts?: UploadOptions) => {
+        try {
+          const args = {
+            channel_id: channel,
+            file: createReadStream(path),
+            filename: opts?.filename ?? basename(path),
+            ...(opts?.caption ? { initial_comment: opts.caption } : {}),
+          };
+          await client.files.uploadV2(opts?.threadTs ? { ...args, thread_ts: opts.threadTs } : args);
+        } catch (e) {
+          const code = slackError(e);
+          if (code === "missing_scope") throw new Error("Slack upload failed: missing_scope (grant the files:write scope and reinstall the app)");
+          throw new Error(code ? `Slack upload failed: ${code}` : (e as Error).message || String(e));
+        }
       },
     };
   }

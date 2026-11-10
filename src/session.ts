@@ -13,6 +13,9 @@
  * Chat-platform specifics live behind the ChatSink interface (see slack.ts).
  */
 import { existsSync } from "node:fs";
+import { realpath, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, resolve } from "node:path";
 import type { BindingOptions, GatewayConfig } from "./config.ts";
 import { isDirectory } from "./config.ts";
 import {
@@ -23,6 +26,7 @@ import {
   formatDuration,
   isActiveRun,
   messageText,
+  parseSendFileDirectives,
   parseSubagentSnapshot,
   truncate,
 } from "./format.ts";
@@ -30,6 +34,12 @@ import type { Logger } from "./log.ts";
 import { PiRpc, type RpcRecord } from "./pi-rpc.ts";
 
 export interface PostOptions {
+  threadTs?: string;
+}
+
+export interface UploadOptions {
+  caption?: string;
+  filename?: string;
   threadTs?: string;
 }
 
@@ -50,6 +60,8 @@ export interface ChatSink {
   remove(ts: string): Promise<void>;
   react(ts: string, emoji: string): Promise<void>;
   unreact(ts: string, emoji: string): Promise<void>;
+  /** Upload a local file to the conversation. */
+  uploadFile(path: string, opts?: UploadOptions): Promise<void>;
 }
 
 export interface InboundImage {
@@ -131,6 +143,8 @@ interface Dialog {
 const MAX_CRASHES = 5;
 const HEALTHY_UPTIME_MS = 10 * 60_000;
 const ACK_EMOJI = "eyes";
+/** Outbound file size limit, symmetric with the inbound download limit. */
+export const MAX_UPLOAD = 100 * 1024 * 1024;
 
 export const HELP = [
   "*Commands*",
@@ -387,6 +401,37 @@ export class BindingSession {
     });
   }
 
+  /** Post a final reply, uploading any `[send-file: …]` directives it contains. Never throws. */
+  private async deliver(reply: string, threadTs?: string): Promise<void> {
+    const { files, text } = parseSendFileDirectives(reply);
+    if (text.trim()) await this.post(text, threadTs);
+    for (const file of files) {
+      try {
+        await this.uploadFile(file.path, file.caption, threadTs);
+      } catch (e) {
+        const reason = (e as Error).message || String(e);
+        this.log.warn("file upload failed", { path: file.path, error: reason });
+        await this.notice(`:warning: could not send ${file.path}: ${reason}`, threadTs);
+      }
+    }
+  }
+
+  private async uploadFile(path: string, caption: string | undefined, threadTs: string | undefined): Promise<void> {
+    const expanded = path === "~" ? homedir() : path.startsWith("~/") ? resolve(homedir(), path.slice(2)) : path;
+    let real: string;
+    try {
+      real = await realpath(resolve(this.binding.cwd, expanded));
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      throw new Error(code === "ENOENT" || code === "ENOTDIR" ? "file not found" : (e as Error).message);
+    }
+    const info = await stat(real);
+    if (info.isDirectory()) throw new Error("is a directory");
+    if (!info.isFile()) throw new Error("not a regular file");
+    if (info.size > MAX_UPLOAD) throw new Error(`${info.size} bytes is over the ${MAX_UPLOAD} byte limit`);
+    await this.opts.sink.uploadFile(real, { caption, filename: basename(expanded), threadTs });
+  }
+
   // ---------------------------------------------------------------------------
   // Commands
   // ---------------------------------------------------------------------------
@@ -616,7 +661,7 @@ export class BindingSession {
         break;
       case "stop":
       case "length":
-        if (text) void this.post(message.stopReason === "length" ? `${text}\n\n_(output truncated: max tokens)_` : text, threadTs);
+        if (text) void this.deliver(message.stopReason === "length" ? `${text}\n\n_(output truncated: max tokens)_` : text, threadTs);
         if (this.run) this.run.note = undefined;
         break;
       default:

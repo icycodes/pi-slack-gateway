@@ -40,6 +40,8 @@ flowchart LR
 - **Threads**: if you write in a thread, the answer goes to that thread.
 - **Attachments**: files are saved to `<stateDir>/inbox/…` and their paths given to the
   agent; images are also passed inline when the model accepts images.
+- **Sending files**: the agent can send a local file back by putting a directive on its
+  own line in its final reply (see [Sending files to Slack](#sending-files-to-slack)).
 - **Extension dialogs**: `select`/`confirm` become buttons; `input`/`editor` are answered
   by your next message.
 - **Commands**: `!help`, `!status`, `!stop`, `!new`, `!later`, `!model`, `!thinking`,
@@ -141,12 +143,56 @@ code.
 pi itself is configured as usual (`~/.pi/agent`, project `.pi/`); the gateway does not
 change models or tools unless a binding sets `model`/`thinking`.
 
+## Sending files to Slack
+
+pi has no RPC method for files, so the gateway looks for a directive in the agent's
+final reply. A line of the form
+
+```
+[send-file: /path/to/file.png]
+[send-file: /path/to/file.png] Optional caption
+```
+
+is removed from the posted text and the file is uploaded to the same channel/thread as
+the reply. Details:
+
+- The directive must start the line (leading whitespace is fine) and the path must be
+  closed by `]`. The path may contain spaces and may be wrapped in backticks. Anything
+  after `]` is the caption. Lines inside fenced code blocks are ignored.
+- `~/…` is expanded; relative paths resolve against the binding's directory (the cwd
+  pi runs in). Only existing regular files up to 100 MB are sent.
+- Several directives in one reply are handled in order. If a reply contains only
+  directives, no empty text message is posted.
+- If a file is missing, is a directory, is too large, or the upload fails, the reply
+  text is still posted and a `:warning: could not send <path>: <reason>` notice follows.
+- Requires the `files:write` bot scope. It is in the manifest, but an app created from
+  an older manifest must add the scope and be **reinstalled** to the workspace
+  (*Install App → Reinstall*); until then uploads fail with `missing_scope`.
+
+The agent only uses this if it knows about it. The default appended system prompt
+([`prompts/manager.md`](prompts/manager.md)) describes the directive, so default installs
+work out of the box. If you set `pi.appendSystemPrompt` to `null` or to your own file,
+the model is not told; add the directive syntax to your prompt (or `AGENTS.md`) yourself.
+Example with [agent-browser](https://github.com/vercel-labs/agent-browser):
+
+> *you:* screenshot http://localhost:3000/login and send it to me
+>
+> *agent* runs `agent-browser open http://localhost:3000/login` and
+> `agent-browser screenshot /tmp/login.png`, then replies:
+> ```
+> Here is the login page.
+> [send-file: /tmp/login.png] localhost:3000/login
+> ```
+
+Slack shows "Here is the login page." followed by the uploaded image with its caption.
+
 ## Security notes
 
 The agent runs with your user's permissions and pi's tools (shell included) without
 interactive approval. Keep `allowedUsers` to yourself, keep `allowedRoots` tight, and
 treat the Slack workspace as part of your trust boundary. Slack tokens are removed from
-the environment passed to pi.
+the environment passed to pi. The `[send-file: …]` directive can upload any regular
+file your user can read, so a reply that names a secret file would post it to Slack.
 
 ## Development
 

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseConfig, type GatewayConfig } from "../src/config.ts";
 import { createLogger } from "../src/log.ts";
-import type { ChatSink, DialogButton, PostOptions } from "../src/session.ts";
+import type { ChatSink, DialogButton, PostOptions, UploadOptions } from "../src/session.ts";
 
 export const FAKE_PI = resolve(import.meta.dirname, "fixtures", "fake-pi.ts");
 export const quietLog = createLogger({ test: true });
@@ -37,10 +37,13 @@ export type SinkCall =
   | { kind: "update"; ts: string; text: string }
   | { kind: "remove"; ts: string }
   | { kind: "react"; ts: string; emoji: string }
-  | { kind: "unreact"; ts: string; emoji: string };
+  | { kind: "unreact"; ts: string; emoji: string }
+  | { kind: "upload"; path: string; caption?: string; filename?: string; threadTs?: string; ts: string };
 
 export class FakeSink implements ChatSink {
   calls: SinkCall[] = [];
+  /** When set, uploadFile rejects with this error (simulates a Slack API failure). */
+  uploadError?: Error;
   private n = 0;
 
   private nextTs(): string {
@@ -73,6 +76,10 @@ export class FakeSink implements ChatSink {
   }
   async unreact(ts: string, emoji: string) {
     this.calls.push({ kind: "unreact", ts, emoji });
+  }
+  async uploadFile(path: string, opts?: UploadOptions) {
+    if (this.uploadError) throw this.uploadError;
+    this.calls.push({ kind: "upload", path, caption: opts?.caption, filename: opts?.filename, threadTs: opts?.threadTs, ts: this.nextTs() });
   }
 
   texts(kind: "markdown" | "notice"): string[] {

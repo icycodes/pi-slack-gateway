@@ -26,6 +26,7 @@ oauth_config:
       - im:write
       - chat:write
       - files:read
+      - files:write
       - reactions:write
 settings:
   event_subscriptions:

@@ -8,6 +8,7 @@
  *   "slow"    → a run with a bash tool call that lasts ~400ms
  *   "unicode" → assistant text containing U+2028
  *   "fail"    → assistant error message
+ *   "say:<x>" → assistant text exactly <x>
  *   anything else → "echo: <text>"
  */
 import { appendFileSync, mkdirSync } from "node:fs";
@@ -58,6 +59,8 @@ async function run(text: string): Promise<void> {
     assistant("done slow");
   } else if (text === "unicode") {
     assistant("line\u2028sep");
+  } else if (text.startsWith("say:")) {
+    assistant(text.slice(4));
   } else if (text === "fail") {
     assistant("", "error", "provider exploded");
   } else {

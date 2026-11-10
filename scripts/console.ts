@@ -39,6 +39,7 @@ const sink: ChatSink = {
   remove: async (ts) => say("remove", ts),
   react: async (ts, e) => say("react", `${ts} :${e}:`),
   unreact: async (ts, e) => say("unreact", `${ts} :${e}:`),
+  uploadFile: async (path, opts) => say("upload", opts?.caption ? `${path} — ${opts.caption}` : path),
 };
 
 const session = new BindingSession({

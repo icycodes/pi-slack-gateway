@@ -1,17 +1,19 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { BindingSession } from "../src/session.ts";
 import { FakeSink, quietLog, tempDir, testConfig, testEnv, waitFor } from "./helpers.ts";
 
 const sessions: BindingSession[] = [];
 
-function makeSession(overrides: { sessionFile?: string; onSessionFile?: (f?: string) => void } = {}) {
+function makeSession(overrides: { sessionFile?: string; onSessionFile?: (f?: string) => void; cwd?: string } = {}) {
   const sink = new FakeSink();
   const files: (string | undefined)[] = [];
   const session = new BindingSession({
     key: "ch:CTEST",
     label: "slack #test",
-    binding: { cwd: tempDir() },
+    binding: { cwd: overrides.cwd ?? tempDir() },
     config: testConfig(),
     sink,
     sessionFile: overrides.sessionFile,
@@ -90,6 +92,52 @@ describe("BindingSession", () => {
     assert.equal(files.length, 1, "session file unchanged across restart");
     const status = await session.statusReport();
     assert.match(status, /Directory/);
+  });
+
+  it("uploads files named by [send-file: …] directives and strips them from the reply", async () => {
+    const cwd = tempDir();
+    writeFileSync(join(cwd, "shot.png"), "png");
+    const abs = join(tempDir(), "other file.txt");
+    writeFileSync(abs, "txt");
+    const { session, sink } = makeSession({ cwd });
+    await session.handleMessage(msg(`here\n[send-file: shot.png] The login page\n[send-file: \`${abs}\`]`, "3.0001", "3.0000"));
+    await waitFor(() => sink.calls.filter((c) => c.kind === "upload").length === 2, 5_000, "uploads");
+    const uploads = sink.calls.filter((c) => c.kind === "upload");
+    assert.deepEqual(
+      uploads.map((c) => c.kind === "upload" && [c.path, c.caption, c.filename, c.threadTs]),
+      [
+        [join(cwd, "shot.png"), "The login page", "shot.png", "3.0000"],
+        [abs, undefined, "other file.txt", "3.0000"],
+      ],
+    );
+    assert.deepEqual(sink.texts("markdown"), ["echo: here"]);
+    assert.ok(sink.calls.findIndex((c) => c.kind === "markdown") < sink.calls.findIndex((c) => c.kind === "upload"), "text is posted before uploads");
+  });
+
+  it("reports unsendable files without dropping the reply", async () => {
+    const cwd = tempDir();
+    mkdirSync(join(cwd, "adir"));
+    const { session, sink } = makeSession({ cwd });
+    await session.handleMessage(msg("still here\n[send-file: /nonexistent/x.png]\n[send-file: adir]"));
+    await waitFor(() => sink.texts("notice").some((t) => t.includes("adir")), 5_000, "directory warning");
+    assert.deepEqual(sink.texts("markdown"), ["echo: still here"]);
+    assert.ok(sink.texts("notice").includes(":warning: could not send /nonexistent/x.png: file not found"));
+    assert.ok(sink.texts("notice").includes(":warning: could not send adir: is a directory"));
+    assert.ok(!sink.calls.some((c) => c.kind === "upload"));
+    assert.ok(session.alive, "session survives failed uploads");
+  });
+
+  it("reports Slack upload errors and skips the empty text post", async () => {
+    const cwd = tempDir();
+    writeFileSync(join(cwd, "shot.png"), "png");
+    const { session, sink } = makeSession({ cwd });
+    sink.uploadError = new Error("Slack upload failed: missing_scope (grant the files:write scope and reinstall the app)");
+    await session.handleMessage(msg("say:[send-file: shot.png]"));
+    await waitFor(() => sink.texts("notice").some((t) => t.includes("missing_scope")), 5_000, "upload error notice");
+    assert.deepEqual(sink.texts("notice").filter((t) => t.startsWith(":warning:")), [
+      ":warning: could not send shot.png: Slack upload failed: missing_scope (grant the files:write scope and reinstall the app)",
+    ]);
+    assert.deepEqual(sink.texts("markdown"), [], "no empty message is posted");
   });
 
   it("handles !new and !status commands", async () => {

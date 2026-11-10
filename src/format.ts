@@ -172,3 +172,42 @@ export function messageText(message: AssistantLike): string {
     .join("\n\n")
     .trim();
 }
+
+// ---------------------------------------------------------------------------
+// Outbound file directives
+// ---------------------------------------------------------------------------
+
+export interface SendFileDirective {
+  /** Path as written by the agent (backticks stripped, not yet resolved). */
+  path: string;
+  caption?: string;
+}
+
+/** `[send-file: <path>]` alone on a line, optionally followed by a caption. */
+const SEND_FILE_LINE = /^\s*\[send-file:\s*([^\]]*?)\s*\](?:\s*(.*?))?\s*$/;
+
+/**
+ * Extract `[send-file: path] optional caption` lines from assistant text and
+ * return the text with those lines removed. Lines inside fenced code blocks are
+ * left alone so the agent can show the syntax without triggering an upload.
+ */
+export function parseSendFileDirectives(text: string): { files: SendFileDirective[]; text: string } {
+  const files: SendFileDirective[] = [];
+  const kept: string[] = [];
+  let inFence = false;
+  for (const line of text.split("\n")) {
+    if (/^\s*```/.test(line)) inFence = !inFence;
+    const m = inFence ? null : SEND_FILE_LINE.exec(line);
+    const path = m?.[1]?.replace(/^`+|`+$/g, "").trim();
+    if (!m || !path) {
+      kept.push(line);
+      continue;
+    }
+    const caption = m[2]?.trim();
+    files.push(caption ? { path, caption } : { path });
+  }
+  if (files.length === 0) return { files, text };
+  while (kept.length && !kept[0]!.trim()) kept.shift();
+  while (kept.length && !kept[kept.length - 1]!.trim()) kept.pop();
+  return { files, text: kept.join("\n") };
+}
