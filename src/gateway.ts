@@ -7,7 +7,7 @@ import { mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { absPath, type BindingOptions, type GatewayConfig, isDirectory, isInside } from "./config.ts";
+import { absPath, type BindingOptions, DEFAULT_TOOLS, type GatewayConfig, isDirectory, isInside } from "./config.ts";
 import { slackToPlain } from "./format.ts";
 import type { Logger } from "./log.ts";
 import { BindingSession, type ChatSink, HELP, type InboundImage } from "./session.ts";
@@ -58,6 +58,11 @@ interface Resolved {
   binding: BindingOptions;
 }
 
+/** Binding for a channel bound with `!bind`: no options, so the config default tools apply. */
+function dynamicBinding(cwd: string): BindingOptions {
+  return { cwd, tools: DEFAULT_TOOLS };
+}
+
 export function displayPath(p: string): string {
   const home = homedir();
   return p === home ? "~" : p.startsWith(`${home}/`) ? `~${p.slice(home.length)}` : p;
@@ -87,7 +92,7 @@ export class Gateway {
     const fixed = this.config.channels[channelId];
     if (fixed) return { key: `ch:${channelId}`, binding: fixed };
     const dynamic = this.opts.state.channels[channelId];
-    if (dynamic) return { key: `ch:${channelId}`, binding: { cwd: dynamic.cwd } };
+    if (dynamic) return { key: `ch:${channelId}`, binding: dynamicBinding(dynamic.cwd) };
     return undefined;
   }
 
@@ -247,7 +252,7 @@ export class Gateway {
     }
     this.opts.state.unbindChannel(ev.channelId, key);
     this.opts.state.bindChannel(ev.channelId, cwd, ev.userId);
-    const session = await this.session({ key, binding: { cwd } }, ev.channelId);
+    const session = await this.session({ key, binding: dynamicBinding(cwd) }, ev.channelId);
     try {
       await session.ensureStarted();
       await reply(`:link: Bound this channel to \`${displayPath(cwd)}\`. Messages here now go to a pi session in that directory.`);

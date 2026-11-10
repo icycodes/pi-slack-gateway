@@ -142,12 +142,13 @@ code.
 
 pi itself is configured as usual (`~/.pi/agent`, project `.pi/`); the gateway does not
 change models unless a binding sets `model`/`thinking`. It does restrict tools by default
-for config bindings (below).
+(below).
 
 ### A binding's tools (restricted by default)
 
-Bindings from `config.json` (`dm` and static `channels`, including the plain
-`"C…": "~/path"` form) run with this tool allowlist unless they set `tools`:
+Every binding (`dm`, static `channels` including the plain `"C…": "~/path"` form, and
+channels bound with `!bind`) runs with this tool allowlist unless its `config.json`
+entry sets `tools`:
 
 ```
 subagent,read,grep,find,ls
@@ -174,12 +175,18 @@ A binding's `tools` value:
 "C0987654321": { "cwd": "~/github/other-repo", "tools": null }
 ```
 
-Bindings created with `!bind` have no options and are not affected: they keep pi's
-default tools (no `--tools` flag).
+Channels bound with `!bind` have no options, so they always get the default allowlist;
+this also applies to channels bound before this change, when they are resumed. To give
+such a channel other tools, add a static entry for its channel ID to `channels` in
+`config.json` with the same `cwd` (e.g. `{ "cwd": "~/github/my-repo", "tools": null }` for
+pi's default tools) and restart the gateway. A
+static entry takes precedence over a `!bind` binding for the same channel, and `!bind` /
+`!unbind` are then refused there ("bound in config.json").
 
 > **Breaking change:** earlier versions passed no `--tools` unless a binding set it, so
-> `dm` and channel bindings had `bash`/`edit`/`write`. If a binding relied on working
-> directly, add `"tools": null` to it in `config.json` and restart the gateway.
+> `dm`, channel and `!bind` bindings had `bash`/`edit`/`write`. If a binding relied on
+> working directly, add `"tools": null` to it in `config.json` (for a `!bind` channel, as
+> a static `channels` entry) and restart the gateway.
 
 ## Sending files to Slack
 

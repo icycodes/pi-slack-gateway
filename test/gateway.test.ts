@@ -40,6 +40,17 @@ function event(partial: Partial<InboundEvent>): InboundEvent {
   return { userId: "U111", channelId: "D1", channelType: "im", text: "", ts: `9.${String(++tsCounter).padStart(4, "0")}`, files: [], ...partial };
 }
 
+const toolsValues = (argv: string[]) => argv.flatMap((a, i) => (a === "--tools" ? [argv[i + 1]] : []));
+
+/** Send "argv" to a channel and return the fake pi's argv from the reply. */
+async function argvIn(gateway: Gateway, platform: FakePlatform, channelId: string): Promise<string[]> {
+  const sink = platform.sinkFor(channelId);
+  const before = sink.texts("markdown").length;
+  await gateway.handle(event({ channelId, channelType: "channel", text: "argv" }));
+  const reply = await waitFor(() => sink.texts("markdown")[before], 5_000, "argv reply");
+  return JSON.parse(reply) as string[];
+}
+
 afterEach(async () => {
   await Promise.all(gateways.splice(0).map((g) => g.shutdown()));
 });
@@ -85,6 +96,41 @@ describe("Gateway", () => {
     await gateway.handle(event({ channelId: "C2", channelType: "channel", text: "!unbind" }));
     assert.match(sink.texts("notice").at(-1) ?? "", /Unbound/);
     assert.equal(state.channels.C2, undefined);
+  });
+
+  it("starts pi for a !bind channel with the default tools", async () => {
+    const { gateway, platform } = setup();
+    await gateway.handle(event({ channelId: "C4", channelType: "channel", text: `!bind ${tempDir("psg-repo-")}` }));
+    assert.match(platform.sinkFor("C4").texts("notice").at(-1) ?? "", /Bound this channel/);
+    assert.deepEqual(toolsValues(await argvIn(gateway, platform, "C4")), ["subagent,read,grep,find,ls"]);
+  });
+
+  it("gives a resumed !bind channel the default tools", async () => {
+    const first = setup();
+    await first.gateway.handle(event({ channelId: "C5", channelType: "channel", text: `!bind ${tempDir("psg-repo-")}` }));
+    await first.gateway.handle(event({ channelId: "C5", channelType: "channel", text: "hi" }));
+    await waitFor(() => first.platform.sinkFor("C5").texts("markdown").includes("echo: hi"));
+    await first.gateway.shutdown();
+
+    // Persisted state holds only { cwd, boundBy, boundAt }; resumeAll re-resolves the binding.
+    const state = new StateStore(first.config.stateDir, quietLog);
+    const platform = new FakePlatform();
+    const gateway = new Gateway({ config: first.config, state, platform, log: quietLog, env: first.env });
+    gateways.push(gateway);
+    await gateway.resumeAll();
+    const argv = await argvIn(gateway, platform, "C5");
+    assert.ok(argv.includes("--session"), "resumed the stored session");
+    assert.deepEqual(toolsValues(argv), ["subagent,read,grep,find,ls"]);
+  });
+
+  it("a static channel binding wins over a stored !bind binding, with its own tools", async () => {
+    const { gateway, platform, state } = setup({
+      channels: { C6: { cwd: tempDir(), tools: null }, C7: { cwd: tempDir(), tools: "read" } },
+    });
+    state.bindChannel("C6", tempDir("psg-repo-"), "U111");
+    state.bindChannel("C7", tempDir("psg-repo-"), "U111");
+    assert.deepEqual(toolsValues(await argvIn(gateway, platform, "C6")), []);
+    assert.deepEqual(toolsValues(await argvIn(gateway, platform, "C7")), ["read"]);
   });
 
   it("downloads attachments and lists their paths in the prompt", async () => {
