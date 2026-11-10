@@ -13,6 +13,12 @@ export interface BindingOptions {
   thinking?: string;
   /** Optional session display name (`--name`). */
   name?: string;
+  /**
+   * Optional `--tools` value, passed through verbatim. Replaces pi's whole tool selection
+   * (a list of plain names is an allowlist), e.g. "subagent,read,grep,find,ls" for a
+   * manager that delegates and verifies by reading but cannot run commands or edit files.
+   */
+  tools?: string;
 }
 
 export interface GatewayConfig {
@@ -78,7 +84,7 @@ function binding(raw: unknown, where: string): BindingOptions {
   const o = raw as Record<string, unknown>;
   if (typeof o.cwd !== "string" || !o.cwd) fail(`${where}.cwd must be a non-empty string`);
   const out: BindingOptions = { cwd: absPath(o.cwd) };
-  for (const key of ["model", "thinking", "name"] as const) {
+  for (const key of ["model", "thinking", "name", "tools"] as const) {
     const v = o[key];
     if (v === undefined) continue;
     if (typeof v !== "string") fail(`${where}.${key} must be a string`);

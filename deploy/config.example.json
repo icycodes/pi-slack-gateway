@@ -3,7 +3,7 @@
   "allowedRoots": ["~"],
   "dm": { "cwd": "~" },
   "channels": {
-    "C0123456789": "~/github/some-repo",
+    "C0123456789": { "cwd": "~/github/some-repo", "tools": "subagent,read,grep,find,ls" },
     "C0987654321": { "cwd": "~/github/other-repo", "model": "kumo/deepseek-4.1-flash", "thinking": "medium" }
   },
   "pi": {

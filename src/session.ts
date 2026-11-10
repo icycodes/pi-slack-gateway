@@ -160,6 +160,26 @@ export const HELP = [
   "• `!bind <path>` / `!unbind` — (channels) attach this channel to a directory",
 ].join("\n");
 
+/** Read-only tools a manager uses to verify work; shown as inspection rather than work. */
+const INSPECTION_TOOLS = new Set(["read", "grep", "find", "ls"]);
+
+/** Status line for a running tool: inspection, delegation, or inline work. */
+function toolActivity(toolName: string, args: unknown): string {
+  const icon = INSPECTION_TOOLS.has(toolName) ? ":mag:" : toolName === "subagent" ? ":jigsaw:" : ":wrench:";
+  return `${icon} ${describeTool(toolName, args)}`;
+}
+
+/**
+ * `!status` cost line. pi reports a flat `cost` of 0 for models without pricing
+ * metadata and exposes no "cost unknown" flag in get_session_stats, so zero cost
+ * with tokens spent means unknown, not free.
+ */
+export function formatCostLine(cost: number, totalTokens: number | undefined): string {
+  const tokens = `${totalTokens?.toLocaleString("en-US") ?? "?"} tokens total`;
+  if (cost === 0 && totalTokens !== undefined && totalTokens > 0) return `*Cost* unknown (no pricing for this model) · ${tokens}`;
+  return `*Cost* $${cost.toFixed(4)} · ${tokens}`;
+}
+
 export class BindingSession {
   readonly key: string;
   readonly binding: BindingOptions;
@@ -226,6 +246,7 @@ export class BindingSession {
     else args.push("--name", binding.name ?? label);
     if (binding.model) args.push("--model", binding.model);
     if (binding.thinking) args.push("--thinking", binding.thinking);
+    if (binding.tools) args.push("--tools", binding.tools);
     if (config.pi.appendSystemPrompt) args.push("--append-system-prompt", config.pi.appendSystemPrompt);
     args.push(...config.pi.args);
     return args;
@@ -582,7 +603,7 @@ export class BindingSession {
       const pct = ctx.percent == null ? "?" : `${ctx.percent < 10 ? ctx.percent.toFixed(1).replace(/\.0$/, "") : Math.round(ctx.percent)}%`;
       lines.push(`*Context* ${pct} of ${ctx.contextWindow?.toLocaleString("en-US") ?? "?"} tokens`);
     }
-    if (stats?.cost !== undefined) lines.push(`*Cost* $${stats.cost.toFixed(4)} · ${stats.tokens?.total?.toLocaleString("en-US") ?? "?"} tokens total`);
+    if (stats?.cost !== undefined) lines.push(formatCostLine(stats.cost, stats.tokens?.total));
     const runs = this.subagents;
     if (runs.length > 0) lines.push(`*Subagents*\n${describeRuns(runs).join("\n")}`);
     else lines.push("*Subagents* none tracked");
@@ -607,7 +628,7 @@ export class BindingSession {
         void this.finishRun({ aborted: ev.aborted === true });
         break;
       case "tool_execution_start":
-        if (this.run) this.run.activity = `:wrench: ${describeTool(String(ev.toolName), ev.args)}`;
+        if (this.run) this.run.activity = toolActivity(String(ev.toolName), ev.args);
         break;
       case "tool_execution_end":
         if (this.run) this.run.activity = ":thought_balloon: thinking";
@@ -685,9 +706,9 @@ export class BindingSession {
 
   private statusText(run: ActiveRun): string {
     const lines = [`:hourglass_flowing_sand: working · ${formatDuration(Date.now() - run.startedAt)}`];
-    if (run.activity) lines.push(run.activity);
     const active = this.subagents.filter(isActiveRun);
     if (active.length) lines.push(`:jigsaw: ${active.length} subagent${active.length > 1 ? "s" : ""} running: ${active.map((r) => r.label).join(", ")}`);
+    if (run.activity) lines.push(run.activity);
     if (run.note) lines.push(`> ${truncate(run.note, 280)}`);
     lines.push("_`!stop` to abort · messages you send now steer the run_");
     return lines.join("\n");

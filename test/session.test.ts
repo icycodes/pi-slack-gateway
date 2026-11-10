@@ -2,18 +2,18 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { BindingSession } from "../src/session.ts";
+import { BindingSession, formatCostLine } from "../src/session.ts";
 import { FakeSink, quietLog, tempDir, testConfig, testEnv, waitFor } from "./helpers.ts";
 
 const sessions: BindingSession[] = [];
 
-function makeSession(overrides: { sessionFile?: string; onSessionFile?: (f?: string) => void; cwd?: string } = {}) {
+function makeSession(overrides: { sessionFile?: string; onSessionFile?: (f?: string) => void; cwd?: string; tools?: string } = {}) {
   const sink = new FakeSink();
   const files: (string | undefined)[] = [];
   const session = new BindingSession({
     key: "ch:CTEST",
     label: "slack #test",
-    binding: { cwd: overrides.cwd ?? tempDir() },
+    binding: { cwd: overrides.cwd ?? tempDir(), ...(overrides.tools ? { tools: overrides.tools } : {}) },
     config: testConfig(),
     sink,
     sessionFile: overrides.sessionFile,
@@ -60,6 +60,32 @@ describe("BindingSession", () => {
     await waitFor(() => sink.texts("markdown").includes("done slow"), 5_000, "final");
     await waitFor(() => sink.calls.some((c) => c.kind === "remove" && c.ts === status.ts), 5_000, "status removal");
     assert.ok(!sink.texts("markdown").includes("working on it"), "interim toolUse text must not be posted as a reply");
+  });
+
+  it("marks read-only tool calls as inspection and bash as inline work in the status", async () => {
+    const { session, sink } = makeSession();
+    await session.handleMessage(msg("inspect"));
+    await waitFor(() => sink.calls.some((c) => (c.kind === "notice" || c.kind === "update") && c.text.includes(":mag: read `src/config.ts`")), 5_000, "inspection status");
+    await waitFor(() => sink.texts("markdown").includes("done inspect"), 5_000, "final");
+    await session.handleMessage(msg("slow", "1.0002"));
+    await waitFor(() => sink.calls.some((c) => (c.kind === "notice" || c.kind === "update") && c.text.includes(":wrench: bash")), 5_000, "work status");
+    await waitFor(() => sink.texts("markdown").includes("done slow"), 5_000, "final slow");
+  });
+
+  it("passes the binding's tools to pi as a single --tools flag", async () => {
+    const { session, sink } = makeSession({ tools: "subagent,read,grep,find,ls" });
+    await session.handleMessage(msg("argv"));
+    const reply = await waitFor(() => sink.texts("markdown")[0], 5_000, "argv reply");
+    const argv = JSON.parse(reply) as string[];
+    assert.equal(argv.filter((a) => a === "--tools").length, 1);
+    assert.equal(argv[argv.indexOf("--tools") + 1], "subagent,read,grep,find,ls");
+  });
+
+  it("does not pass --tools when the binding sets none", async () => {
+    const { session, sink } = makeSession();
+    await session.handleMessage(msg("argv"));
+    const reply = await waitFor(() => sink.texts("markdown")[0], 5_000, "argv reply");
+    assert.ok(!(JSON.parse(reply) as string[]).includes("--tools"));
   });
 
   it("posts provider errors once the run settles", async () => {
@@ -152,7 +178,24 @@ describe("BindingSession", () => {
     const status = await waitFor(() => sink.texts("notice").find((t) => t.includes("*Model*")));
     assert.match(status, /test\/fake-model/);
     assert.match(status, /Context\* 1%/);
+    assert.ok(status.includes("*Cost* $0.0100 · 42 tokens total"));
     await session.handleMessage(msg("!nope", "1.0004"));
     await waitFor(() => sink.texts("notice").some((t) => t.includes("Unknown command")));
+  });
+});
+
+describe("formatCostLine", () => {
+  it("renders a positive cost with 4 decimals and the token total", () => {
+    assert.equal(formatCostLine(0.0123, 142_224), "*Cost* $0.0123 · 142,224 tokens total");
+  });
+
+  it("reports zero cost with tokens spent as unknown, keeping the token total", () => {
+    const line = formatCostLine(0, 142_224);
+    assert.equal(line, "*Cost* unknown (no pricing for this model) · 142,224 tokens total");
+    assert.ok(!line.includes("$0.0000"));
+  });
+
+  it("renders a fresh session with no tokens as $0.0000", () => {
+    assert.equal(formatCostLine(0, 0), "*Cost* $0.0000 · 0 tokens total");
   });
 });

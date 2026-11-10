@@ -133,7 +133,7 @@ code.
 | `allowedUsers` | — (required) | Slack user IDs allowed to use the bot |
 | `allowedRoots` | `["~"]` | `!bind` may only target directories inside these |
 | `dm` | `{ "cwd": "~" }` | binding for DMs |
-| `channels` | `{}` | static bindings: `"C…": "~/path"` or `{ "cwd", "model", "thinking", "name" }` |
+| `channels` | `{}` | static bindings: `"C…": "~/path"` or `{ "cwd", "model", "thinking", "name", "tools" }` |
 | `pi.command` / `pi.args` | `"pi"` / `[]` | pi executable and extra arguments for every process |
 | `pi.appendSystemPrompt` | `prompts/manager.md` | file appended to pi's system prompt; `null` disables |
 | `notify` | `"warnings"` | which extension notifications reach Slack: `all`, `warnings`, `none` |
@@ -141,7 +141,25 @@ code.
 | `stateDir` | `~/.local/state/pi-slack-gateway` | `state.json` (bindings, session pointers) and the attachment inbox |
 
 pi itself is configured as usual (`~/.pi/agent`, project `.pi/`); the gateway does not
-change models or tools unless a binding sets `model`/`thinking`.
+change models or tools unless a binding sets `model`/`thinking`/`tools`.
+
+### Restricting a binding's tools
+
+A binding's `tools` string is passed verbatim as pi's `--tools` and replaces pi's whole
+tool selection (a list of plain names is an allowlist). For chat bindings we recommend:
+
+```json
+"C0123456789": { "cwd": "~/github/some-repo", "tools": "subagent,read,grep,find,ls" }
+```
+
+Why: a chat binding should delegate, not work. While a turn runs, the operator's Slack
+thread is held; with `bash` a single call can block it for up to 150 s (pi's default
+bash timeout), and the agent chains calls. With this allowlist the agent can launch
+subagents and verify their work by reading files and diffs, but it cannot run tests or
+builds or edit files — that is the worker's job, reported back as evidence. Subagents
+are unaffected: they run in their own pi process with their own (full) tool set. The
+default [`prompts/manager.md`](prompts/manager.md) assumes this restriction. Bindings
+created with `!bind` have no options and keep pi's default tools.
 
 ## Sending files to Slack
 

@@ -6,6 +6,8 @@
  *   "crash"   → exit(3) immediately
  *   "ask"     → extension select dialog, then echo the answer
  *   "slow"    → a run with a bash tool call that lasts ~400ms
+ *   "inspect" → a run with a read tool call that lasts ~400ms
+ *   "argv"    → assistant text is JSON of the process argv
  *   "unicode" → assistant text containing U+2028
  *   "fail"    → assistant error message
  *   "say:<x>" → assistant text exactly <x>
@@ -57,6 +59,14 @@ async function run(text: string): Promise<void> {
     await sleep(400);
     out({ type: "tool_execution_end", toolCallId: "t1", toolName: "bash", result: {}, isError: false });
     assistant("done slow");
+  } else if (text === "inspect") {
+    assistant("checking", "toolUse");
+    out({ type: "tool_execution_start", toolCallId: "t1", toolName: "read", args: { path: "src/config.ts" } });
+    await sleep(400);
+    out({ type: "tool_execution_end", toolCallId: "t1", toolName: "read", result: {}, isError: false });
+    assistant("done inspect");
+  } else if (text === "argv") {
+    assistant(JSON.stringify(argv));
   } else if (text === "unicode") {
     assistant("line\u2028sep");
   } else if (text.startsWith("say:")) {
