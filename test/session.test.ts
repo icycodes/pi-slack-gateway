@@ -99,13 +99,13 @@ describe("BindingSession", () => {
 
     it("a dm with only cwd gets the default manager allowlist", async () => {
       const config = testConfig({ dm: { cwd: tempDir() } });
-      assert.deepEqual(toolsValues(await argvFor(config.dm)), ["subagent,read,grep,find,ls"]);
+      assert.deepEqual(toolsValues(await argvFor(config.dm)), ["subagent,subagent_supervisor,contact_supervisor,bg_wait,read,grep,find,ls"]);
     });
 
     it("a static channel with only cwd gets the default manager allowlist", async () => {
       const config = testConfig({ channels: { CTEST: { cwd: tempDir() }, CPLAIN: tempDir() } });
-      assert.deepEqual(toolsValues(await argvFor(config.channels.CTEST!)), ["subagent,read,grep,find,ls"]);
-      assert.deepEqual(toolsValues(await argvFor(config.channels.CPLAIN!)), ["subagent,read,grep,find,ls"]);
+      assert.deepEqual(toolsValues(await argvFor(config.channels.CTEST!)), ["subagent,subagent_supervisor,contact_supervisor,bg_wait,read,grep,find,ls"]);
+      assert.deepEqual(toolsValues(await argvFor(config.channels.CPLAIN!)), ["subagent,subagent_supervisor,contact_supervisor,bg_wait,read,grep,find,ls"]);
     });
 
     it("an explicit tools string wins", async () => {

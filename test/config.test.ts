@@ -18,12 +18,18 @@ describe("parseConfig bindings", () => {
   });
 
   it("defaults tools to the manager allowlist for dm and static channels", () => {
-    assert.equal(DEFAULT_TOOLS, "subagent,read,grep,find,ls");
+    assert.equal(DEFAULT_TOOLS, "subagent,subagent_supervisor,contact_supervisor,bg_wait,read,grep,find,ls");
     const config = parseConfig({ ...base, dm: { cwd: tmpdir() }, channels: { C123: { cwd: tmpdir() }, C456: tmpdir() } });
     assert.equal(config.dm.tools, DEFAULT_TOOLS);
     assert.equal(config.channels.C123!.tools, DEFAULT_TOOLS);
     assert.equal(config.channels.C456!.tools, DEFAULT_TOOLS);
     assert.equal(parseConfig(base).dm.tools, DEFAULT_TOOLS);
+  });
+
+  it("default allowlist keeps the supervisor reply tool and excludes inline work tools", () => {
+    const tools = DEFAULT_TOOLS.split(",");
+    for (const name of ["subagent", "subagent_supervisor", "contact_supervisor", "bg_wait"]) assert.ok(tools.includes(name), name);
+    for (const name of ["bash", "edit", "write"]) assert.ok(!tools.includes(name), name);
   });
 
   it("lets an explicit tools string override the default", () => {

@@ -55,9 +55,16 @@ export const DEFAULT_PROMPT = resolve(import.meta.dirname, "..", "prompts", "man
  * `bash` call can block it for up to 150 s (pi's default bash timeout) and calls get chained.
  * With this set the agent launches subagents and verifies by reading, but cannot run commands
  * or edit files. A binding opts out with `"tools": null` (or `""`): no `--tools` flag, pi's
- * default tools. `!bind` bindings do not go through `binding()` and keep pi's default tools.
+ * default tools. `!bind` bindings do not go through `binding()` but get these tools too
+ * (`dynamicBinding()` in gateway.ts); a static `channels` entry with `"tools": null` opts out.
+ *
+ * The allowlist removes every unnamed tool from pi's tool registry, not just from the active
+ * set, so the supervisor tools must be named here. `subagent_supervisor` is the only way a
+ * parent can answer a supervised child's `contact_supervisor` ask; without it the child
+ * blocks until the ask times out (10 min by default). `contact_supervisor` and `bg_wait`
+ * come from the same subagent extension and are kept for the same reason.
  */
-export const DEFAULT_TOOLS = "subagent,read,grep,find,ls";
+export const DEFAULT_TOOLS = "subagent,subagent_supervisor,contact_supervisor,bg_wait,read,grep,find,ls";
 
 export function expandHome(p: string): string {
   if (p === "~") return homedir();

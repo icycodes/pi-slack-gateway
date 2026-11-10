@@ -102,7 +102,7 @@ describe("Gateway", () => {
     const { gateway, platform } = setup();
     await gateway.handle(event({ channelId: "C4", channelType: "channel", text: `!bind ${tempDir("psg-repo-")}` }));
     assert.match(platform.sinkFor("C4").texts("notice").at(-1) ?? "", /Bound this channel/);
-    assert.deepEqual(toolsValues(await argvIn(gateway, platform, "C4")), ["subagent,read,grep,find,ls"]);
+    assert.deepEqual(toolsValues(await argvIn(gateway, platform, "C4")), ["subagent,subagent_supervisor,contact_supervisor,bg_wait,read,grep,find,ls"]);
   });
 
   it("gives a resumed !bind channel the default tools", async () => {
@@ -120,7 +120,7 @@ describe("Gateway", () => {
     await gateway.resumeAll();
     const argv = await argvIn(gateway, platform, "C5");
     assert.ok(argv.includes("--session"), "resumed the stored session");
-    assert.deepEqual(toolsValues(argv), ["subagent,read,grep,find,ls"]);
+    assert.deepEqual(toolsValues(argv), ["subagent,subagent_supervisor,contact_supervisor,bg_wait,read,grep,find,ls"]);
   });
 
   it("a static channel binding wins over a stored !bind binding, with its own tools", async () => {

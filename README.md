@@ -133,7 +133,7 @@ code.
 | `allowedUsers` | — (required) | Slack user IDs allowed to use the bot |
 | `allowedRoots` | `["~"]` | `!bind` may only target directories inside these |
 | `dm` | `{ "cwd": "~" }` | binding for DMs (same options as a channel binding object) |
-| `channels` | `{}` | static bindings: `"C…": "~/path"` or `{ "cwd", "model", "thinking", "name", "tools" }`; `tools` defaults to `subagent,read,grep,find,ls` |
+| `channels` | `{}` | static bindings: `"C…": "~/path"` or `{ "cwd", "model", "thinking", "name", "tools" }`; `tools` defaults to `subagent,subagent_supervisor,contact_supervisor,bg_wait,read,grep,find,ls` |
 | `pi.command` / `pi.args` | `"pi"` / `[]` | pi executable and extra arguments for every process |
 | `pi.appendSystemPrompt` | `prompts/manager.md` | file appended to pi's system prompt; `null` disables |
 | `notify` | `"warnings"` | which extension notifications reach Slack: `all`, `warnings`, `none` |
@@ -151,14 +151,18 @@ channels bound with `!bind`) runs with this tool allowlist unless its `config.js
 entry sets `tools`:
 
 ```
-subagent,read,grep,find,ls
+subagent,subagent_supervisor,contact_supervisor,bg_wait,read,grep,find,ls
 ```
 
 Why: a chat binding should delegate, not work. While a turn runs, the operator's Slack
 thread is held; with `bash` a single call can block it for up to 150 s (pi's default
 bash timeout), and the agent chains calls. With this allowlist the agent can launch
-subagents and verify their work by reading files and diffs, but it cannot run tests or
-builds or edit files — that is the worker's job, reported back as evidence. Subagents
+subagents, answer their supervisor questions, and verify their work by reading files and
+diffs, but it cannot run tests or builds or edit files — that is the worker's job,
+reported back as evidence. The supervisor tools (`subagent_supervisor`,
+`contact_supervisor`, `bg_wait`) are listed because `--tools` removes every unnamed tool
+from pi entirely; without `subagent_supervisor` a subagent that asks its parent a
+question would wait unanswered until the ask times out. Subagents
 are unaffected: they run in their own pi process with their own (full) tool set. The
 default [`prompts/manager.md`](prompts/manager.md) assumes this restriction.
 
@@ -166,7 +170,7 @@ A binding's `tools` value:
 
 | `tools` | pi is started with |
 |---|---|
-| absent | `--tools subagent,read,grep,find,ls` (the default) |
+| absent | `--tools subagent,subagent_supervisor,contact_supervisor,bg_wait,read,grep,find,ls` (the default) |
 | `"read,grep"` (any non-empty string) | `--tools read,grep`, passed verbatim; replaces pi's whole tool selection |
 | `null` or `""` | no `--tools` flag: pi's default tools (`bash`, `edit`, `write`, …) |
 
