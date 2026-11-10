@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { tmpdir } from "node:os";
-import { parseConfig } from "../src/config.ts";
+import { DEFAULT_TOOLS, parseConfig } from "../src/config.ts";
 
 const base = { allowedUsers: ["U111"], allowedRoots: [tmpdir()] };
 
@@ -14,6 +14,31 @@ describe("parseConfig bindings", () => {
     });
     assert.equal(config.dm.tools, "subagent,read,grep,find,ls");
     assert.equal(config.channels.C123!.tools, "subagent,read");
+    assert.equal(config.channels.C456!.tools, DEFAULT_TOOLS);
+  });
+
+  it("defaults tools to the manager allowlist for dm and static channels", () => {
+    assert.equal(DEFAULT_TOOLS, "subagent,read,grep,find,ls");
+    const config = parseConfig({ ...base, dm: { cwd: tmpdir() }, channels: { C123: { cwd: tmpdir() }, C456: tmpdir() } });
+    assert.equal(config.dm.tools, DEFAULT_TOOLS);
+    assert.equal(config.channels.C123!.tools, DEFAULT_TOOLS);
+    assert.equal(config.channels.C456!.tools, DEFAULT_TOOLS);
+    assert.equal(parseConfig(base).dm.tools, DEFAULT_TOOLS);
+  });
+
+  it("lets an explicit tools string override the default", () => {
+    const config = parseConfig({ ...base, dm: { cwd: tmpdir(), tools: "read" } });
+    assert.equal(config.dm.tools, "read");
+  });
+
+  it("treats tools null or empty as opting out to pi's default tools", () => {
+    const config = parseConfig({
+      ...base,
+      dm: { cwd: tmpdir(), tools: null },
+      channels: { C123: { cwd: tmpdir(), tools: "" }, C456: { cwd: tmpdir(), tools: "  " } },
+    });
+    assert.equal(config.dm.tools, undefined);
+    assert.equal(config.channels.C123!.tools, undefined);
     assert.equal(config.channels.C456!.tools, undefined);
   });
 

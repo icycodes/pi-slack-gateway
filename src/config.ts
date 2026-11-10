@@ -14,9 +14,9 @@ export interface BindingOptions {
   /** Optional session display name (`--name`). */
   name?: string;
   /**
-   * Optional `--tools` value, passed through verbatim. Replaces pi's whole tool selection
-   * (a list of plain names is an allowlist), e.g. "subagent,read,grep,find,ls" for a
-   * manager that delegates and verifies by reading but cannot run commands or edit files.
+   * `--tools` value, passed through verbatim. Replaces pi's whole tool selection (a list of
+   * plain names is an allowlist). Config bindings default to `DEFAULT_TOOLS`; config `null`
+   * or `""` parse to undefined here, which means no `--tools` flag (pi's default tools).
    */
   tools?: string;
 }
@@ -49,6 +49,16 @@ export interface GatewayConfig {
 
 export const DEFAULT_PROMPT = resolve(import.meta.dirname, "..", "prompts", "manager.md");
 
+/**
+ * Default `--tools` allowlist for config bindings (`dm`, static `channels`). A chat binding
+ * should delegate, not work: while a turn runs the operator's Slack thread is held, and one
+ * `bash` call can block it for up to 150 s (pi's default bash timeout) and calls get chained.
+ * With this set the agent launches subagents and verifies by reading, but cannot run commands
+ * or edit files. A binding opts out with `"tools": null` (or `""`): no `--tools` flag, pi's
+ * default tools. `!bind` bindings do not go through `binding()` and keep pi's default tools.
+ */
+export const DEFAULT_TOOLS = "subagent,read,grep,find,ls";
+
 export function expandHome(p: string): string {
   if (p === "~") return homedir();
   if (p.startsWith("~/")) return join(homedir(), p.slice(2));
@@ -79,17 +89,22 @@ function fail(msg: string): never {
 }
 
 function binding(raw: unknown, where: string): BindingOptions {
-  if (typeof raw === "string") return { cwd: absPath(raw) };
+  if (typeof raw === "string") return { cwd: absPath(raw), tools: DEFAULT_TOOLS };
   if (!raw || typeof raw !== "object") fail(`${where} must be a path string or an object with "cwd"`);
   const o = raw as Record<string, unknown>;
   if (typeof o.cwd !== "string" || !o.cwd) fail(`${where}.cwd must be a non-empty string`);
   const out: BindingOptions = { cwd: absPath(o.cwd) };
-  for (const key of ["model", "thinking", "name", "tools"] as const) {
+  for (const key of ["model", "thinking", "name"] as const) {
     const v = o[key];
     if (v === undefined) continue;
     if (typeof v !== "string") fail(`${where}.${key} must be a string`);
     out[key] = v;
   }
+  // Absent → DEFAULT_TOOLS; null or "" → no --tools flag (never `--tools ""`).
+  if (o.tools === undefined) out.tools = DEFAULT_TOOLS;
+  else if (typeof o.tools === "string") {
+    if (o.tools.trim()) out.tools = o.tools;
+  } else if (o.tools !== null) fail(`${where}.tools must be a string or null`);
   return out;
 }
 
@@ -146,7 +161,7 @@ export function parseConfig(raw: unknown): GatewayConfig {
   return {
     allowedUsers: allowedUsers as string[],
     allowedRoots: (roots as string[]).map((r) => absPath(r)),
-    dm: o.dm === undefined ? { cwd: homedir() } : binding(o.dm, "dm"),
+    dm: o.dm === undefined ? { cwd: homedir(), tools: DEFAULT_TOOLS } : binding(o.dm, "dm"),
     channels,
     pi: { command, args: args as string[], appendSystemPrompt },
     notify,

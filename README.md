@@ -132,8 +132,8 @@ code.
 | --- | --- | --- |
 | `allowedUsers` | — (required) | Slack user IDs allowed to use the bot |
 | `allowedRoots` | `["~"]` | `!bind` may only target directories inside these |
-| `dm` | `{ "cwd": "~" }` | binding for DMs |
-| `channels` | `{}` | static bindings: `"C…": "~/path"` or `{ "cwd", "model", "thinking", "name", "tools" }` |
+| `dm` | `{ "cwd": "~" }` | binding for DMs (same options as a channel binding object) |
+| `channels` | `{}` | static bindings: `"C…": "~/path"` or `{ "cwd", "model", "thinking", "name", "tools" }`; `tools` defaults to `subagent,read,grep,find,ls` |
 | `pi.command` / `pi.args` | `"pi"` / `[]` | pi executable and extra arguments for every process |
 | `pi.appendSystemPrompt` | `prompts/manager.md` | file appended to pi's system prompt; `null` disables |
 | `notify` | `"warnings"` | which extension notifications reach Slack: `all`, `warnings`, `none` |
@@ -141,15 +141,16 @@ code.
 | `stateDir` | `~/.local/state/pi-slack-gateway` | `state.json` (bindings, session pointers) and the attachment inbox |
 
 pi itself is configured as usual (`~/.pi/agent`, project `.pi/`); the gateway does not
-change models or tools unless a binding sets `model`/`thinking`/`tools`.
+change models unless a binding sets `model`/`thinking`. It does restrict tools by default
+for config bindings (below).
 
-### Restricting a binding's tools
+### A binding's tools (restricted by default)
 
-A binding's `tools` string is passed verbatim as pi's `--tools` and replaces pi's whole
-tool selection (a list of plain names is an allowlist). For chat bindings we recommend:
+Bindings from `config.json` (`dm` and static `channels`, including the plain
+`"C…": "~/path"` form) run with this tool allowlist unless they set `tools`:
 
-```json
-"C0123456789": { "cwd": "~/github/some-repo", "tools": "subagent,read,grep,find,ls" }
+```
+subagent,read,grep,find,ls
 ```
 
 Why: a chat binding should delegate, not work. While a turn runs, the operator's Slack
@@ -158,8 +159,27 @@ bash timeout), and the agent chains calls. With this allowlist the agent can lau
 subagents and verify their work by reading files and diffs, but it cannot run tests or
 builds or edit files — that is the worker's job, reported back as evidence. Subagents
 are unaffected: they run in their own pi process with their own (full) tool set. The
-default [`prompts/manager.md`](prompts/manager.md) assumes this restriction. Bindings
-created with `!bind` have no options and keep pi's default tools.
+default [`prompts/manager.md`](prompts/manager.md) assumes this restriction.
+
+A binding's `tools` value:
+
+| `tools` | pi is started with |
+|---|---|
+| absent | `--tools subagent,read,grep,find,ls` (the default) |
+| `"read,grep"` (any non-empty string) | `--tools read,grep`, passed verbatim; replaces pi's whole tool selection |
+| `null` or `""` | no `--tools` flag: pi's default tools (`bash`, `edit`, `write`, …) |
+
+```json
+"C0123456789": { "cwd": "~/github/some-repo" },
+"C0987654321": { "cwd": "~/github/other-repo", "tools": null }
+```
+
+Bindings created with `!bind` have no options and are not affected: they keep pi's
+default tools (no `--tools` flag).
+
+> **Breaking change:** earlier versions passed no `--tools` unless a binding set it, so
+> `dm` and channel bindings had `bash`/`edit`/`write`. If a binding relied on working
+> directly, add `"tools": null` to it in `config.json` and restart the gateway.
 
 ## Sending files to Slack
 

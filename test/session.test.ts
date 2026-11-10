@@ -2,18 +2,19 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { BindingOptions } from "../src/config.ts";
 import { BindingSession, formatCostLine } from "../src/session.ts";
 import { FakeSink, quietLog, tempDir, testConfig, testEnv, waitFor } from "./helpers.ts";
 
 const sessions: BindingSession[] = [];
 
-function makeSession(overrides: { sessionFile?: string; onSessionFile?: (f?: string) => void; cwd?: string; tools?: string } = {}) {
+function makeSession(overrides: { sessionFile?: string; onSessionFile?: (f?: string) => void; cwd?: string; tools?: string; binding?: BindingOptions } = {}) {
   const sink = new FakeSink();
   const files: (string | undefined)[] = [];
   const session = new BindingSession({
     key: "ch:CTEST",
     label: "slack #test",
-    binding: { cwd: overrides.cwd ?? tempDir(), ...(overrides.tools ? { tools: overrides.tools } : {}) },
+    binding: overrides.binding ?? { cwd: overrides.cwd ?? tempDir(), ...(overrides.tools ? { tools: overrides.tools } : {}) },
     config: testConfig(),
     sink,
     sessionFile: overrides.sessionFile,
@@ -86,6 +87,43 @@ describe("BindingSession", () => {
     await session.handleMessage(msg("argv"));
     const reply = await waitFor(() => sink.texts("markdown")[0], 5_000, "argv reply");
     assert.ok(!(JSON.parse(reply) as string[]).includes("--tools"));
+  });
+
+  describe("--tools from parsed config bindings", () => {
+    const argvFor = async (binding: BindingOptions): Promise<string[]> => {
+      const { session, sink } = makeSession({ binding });
+      await session.handleMessage(msg("argv"));
+      return JSON.parse(await waitFor(() => sink.texts("markdown")[0], 5_000, "argv reply")) as string[];
+    };
+    const toolsValues = (argv: string[]) => argv.flatMap((a, i) => (a === "--tools" ? [argv[i + 1]] : []));
+
+    it("a dm with only cwd gets the default manager allowlist", async () => {
+      const config = testConfig({ dm: { cwd: tempDir() } });
+      assert.deepEqual(toolsValues(await argvFor(config.dm)), ["subagent,read,grep,find,ls"]);
+    });
+
+    it("a static channel with only cwd gets the default manager allowlist", async () => {
+      const config = testConfig({ channels: { CTEST: { cwd: tempDir() }, CPLAIN: tempDir() } });
+      assert.deepEqual(toolsValues(await argvFor(config.channels.CTEST!)), ["subagent,read,grep,find,ls"]);
+      assert.deepEqual(toolsValues(await argvFor(config.channels.CPLAIN!)), ["subagent,read,grep,find,ls"]);
+    });
+
+    it("an explicit tools string wins", async () => {
+      const config = testConfig({ channels: { CTEST: { cwd: tempDir(), tools: "read" } } });
+      assert.deepEqual(toolsValues(await argvFor(config.channels.CTEST!)), ["read"]);
+    });
+
+    it("tools null emits no --tools flag", async () => {
+      const config = testConfig({ channels: { CTEST: { cwd: tempDir(), tools: null } } });
+      assert.deepEqual(toolsValues(await argvFor(config.channels.CTEST!)), []);
+    });
+
+    it("tools empty string emits no --tools flag (never --tools \"\")", async () => {
+      const config = testConfig({ channels: { CTEST: { cwd: tempDir(), tools: "" } } });
+      const argv = await argvFor(config.channels.CTEST!);
+      assert.deepEqual(toolsValues(argv), []);
+      assert.ok(!argv.includes(""));
+    });
   });
 
   it("posts provider errors once the run settles", async () => {
