@@ -1,0 +1,111 @@
+# Publish pi-slack-gateway to npm using npm Trusted Publishing (OIDC).
+#
+# No NPM_TOKEN secret exists or is needed: npm exchanges a short-lived GitHub
+# OIDC token for a one-time publish credential. The npmjs.com Trusted Publisher
+# entry for this package must name exactly: icycodes / pi-slack-gateway /
+# publish.yml (this filename, including the .yml extension).
+#
+# Release: bump "version" in package.json, commit, then push tag "v<version>"
+# (e.g. v0.1.1-beta). The job fails unless the tag equals "v" + package.json version.
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  # Manual re-run / alternate dist-tag. In "Use workflow from", pick the release
+  # TAG (not a branch); the tag guard below rejects branch refs.
+  workflow_dispatch:
+    inputs:
+      dist-tag:
+        description: "npm dist-tag to publish under"
+        type: choice
+        options:
+          - latest
+          - beta
+        default: latest
+
+# Least privilege by default; the publish job widens only what it needs.
+permissions:
+  contents: read
+
+# One publish at a time across all tags; never cancel a publish mid-flight.
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm
+    # Trusted publishing only works on GitHub-hosted runners.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout only
+      id-token: write # REQUIRED: lets npm obtain a GitHub OIDC token, which is what enables the tokenless publish
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false # nothing is pushed back; don't leave a git token on disk
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22 # engines.node is >=22.18
+          # Writes an .npmrc for registry.npmjs.org. No NODE_AUTH_TOKEN is set on
+          # purpose: the npm CLI replaces auth with the OIDC-exchanged token at publish.
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false # no dependency cache in a release job (cache-poisoning risk)
+
+      # Node 22 bundles npm 10.x; trusted publishing requires npm >= 11.5.1.
+      - name: Upgrade npm for trusted publishing (>= 11.5.1)
+        run: |
+          npm install -g "npm@^11.5.1"
+          npm --version
+
+      - name: Verify tag matches package.json version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "::error::Publishing requires a tag ref; got $REF_TYPE '$REF_NAME'."
+            exit 1
+          fi
+          PKG_VERSION="$(node -p 'require("./package.json").version')"
+          if [ "$REF_NAME" != "v$PKG_VERSION" ]; then
+            echo "::error::Tag '$REF_NAME' does not match package.json version '$PKG_VERSION' (expected tag 'v$PKG_VERSION')."
+            exit 1
+          fi
+          echo "Tag $REF_NAME matches package.json version $PKG_VERSION."
+
+      - name: Verify version is not already on npm
+        run: |
+          set -euo pipefail
+          NAME="$(node -p 'require("./package.json").name')"
+          VERSION="$(node -p 'require("./package.json").version')"
+          STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$NAME/$VERSION")"
+          case "$STATUS" in
+            404) echo "$NAME@$VERSION is not published yet." ;;
+            200) echo "::error::$NAME@$VERSION is already published on npm."; exit 1 ;;
+            *) echo "::error::Unexpected HTTP $STATUS from the npm registry while checking $NAME@$VERSION."; exit 1 ;;
+          esac
+
+      - name: Install dependencies (npm ci)
+        run: npm ci
+
+      # prepublishOnly runs `npm run check && npm test && npm run build`, so the
+      # typecheck/test gate and the dist/ build happen inside this step, before
+      # anything is uploaded. Provenance is automatic with trusted publishing from
+      # a public repo, so --provenance is not passed.
+      #
+      # DIST-TAG POLICY: every release, including prereleases like 0.1.1-beta, goes
+      # to `latest` (deliberate: the package has no stable release yet). npm >= 11
+      # refuses to publish a prerelease without an explicit --tag. To stop
+      # prereleases from moving `latest`, change the DIST_TAG line below to:
+      #   DIST_TAG: ${{ inputs.dist-tag || (contains(github.ref_name, '-') && 'beta' || 'latest') }}
+      - name: Publish to npm (trusted publishing)
+        env:
+          DIST_TAG: ${{ inputs.dist-tag || 'latest' }}
+        run: npm publish --tag "$DIST_TAG"
