@@ -1,6 +1,6 @@
 {
   "name": "pi-slack-gateway",
-  "version": "0.1.0-beta",
+  "version": "0.1.1-beta",
   "description": "Always-on Slack gateway for the Pi coding agent: one long-lived `pi --mode rpc` per DM/channel binding.",
   "keywords": [
     "slack",
