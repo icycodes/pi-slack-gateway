@@ -138,11 +138,15 @@ describe("manager prompt monitoring section", () => {
     assert.ok(prompt.includes("### Monitoring long-running jobs"));
     assert.match(section, /Opt-in/);
     assert.match(section, /subagent\(\{agent:"job-runner", async:true, task:"JOB_CMD: /);
-    assert.match(section, /action:"schedule\.create", id:"<job>-tail", workflow:true, args:\{log:"<log>"\}, options:\{every:"10m"\}/);
+    assert.match(section, /action:"schedule\.create", id:"<job>-tail", args:\{log:"<log>"\}, options:\{every:"10m", script:"/);
+    // workflow:true with a fenced block failed in a real session; it may be mentioned only as the fallback to avoid.
+    assert.doesNotMatch(section, /schedule\.create"[^\n]*workflow:true/);
+    assert.doesNotMatch(section, /```js workflow\n/);
     assert.match(section, /action:"schedule\.delete", id:"<job>-tail"/);
     assert.match(section, /model child that uses `bash`/);
     assert.match(section, /restart the gateway/);
     assert.match(section, /no observed activity for 60s/);
+    assert.match(section, /not a user-facing event: do not reply to it or post about it/);
     assert.match(section, /channel root/);
     assert.match(section, /2147483647 ms/);
     assert.match(section, /options:\{timeoutMs:<ms>\}/);
@@ -153,16 +157,18 @@ describe("manager prompt monitoring section", () => {
     assert.doesNotMatch(section, /\.pi\/agents|\.pi\/workflows|monitor-probe/);
   });
 
-  it("shows a tail workflow script that runs job-runner on args.log", () => {
-    const block = section.match(/```js workflow\n([\s\S]*?)\n\s*```/)?.[1];
-    assert.ok(block, "has a ```js workflow block");
-    const calls: [string, { agent: string; task: string }][] = [];
-    const runs = { run: (key: string, params: { agent: string; task: string }) => calls.push([key, params]) };
-    new Function("runs", "args", block)(runs, Object.freeze({ log: "/var/log/job.log" }));
+  it("passes a tail script as options.script that runs job-runner on args.log", () => {
+    const literal = section.match(/options:\{every:"10m", script:("(?:[^"\\]|\\.)*")\}/)?.[1];
+    assert.ok(literal, "has an options.script string literal");
+    const script: string = JSON.parse(literal);
+    const calls: [string, { agent: string; cwd: string; task: string }][] = [];
+    const runs = { run: (key: string, params: { agent: string; cwd: string; task: string }) => calls.push([key, params]) };
+    new Function("runs", "args", script)(runs, Object.freeze({ log: "/var/log/job.log" }));
     assert.equal(calls.length, 1);
     const [key, params] = calls[0]!;
     assert.equal(key, "tail");
     assert.equal(params.agent, "job-runner");
+    assert.equal(params.cwd, "<dir>");
     assert.match(params.task, /^JOB_CMD: .*tail -n 3 \/var\/log\/job\.log$/);
   });
 });

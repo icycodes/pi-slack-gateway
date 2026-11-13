@@ -36,16 +36,15 @@ Opt-in: use this only when the operator asks you to run something long (an eval,
 
   `cwd` is optional and only sets the directory the command runs in (default: your session's). The default timeout is effectively unlimited (the maximum, 2147483647 ms, about 24.85 days). To bound a job, add `options:{timeoutMs:<ms>}` (a positive integer in ms, inside `options`, not top level); when it expires the job is killed and reported as timed out.
 - Because of that default, a hung job is not killed automatically. The 10-minute progress tail is then your main signal: if ticks stop showing progress, treat the job as possibly hung and check `subagent({action:"status", id:"<run id>"})`.
-- Progress tail (optional, every 10 minutes): in the same reply, write this block and then call `subagent({action:"schedule.create", id:"<job>-tail", workflow:true, args:{log:"<log>"}, options:{every:"10m"}})`:
+- Progress tail (optional, every 10 minutes): register a schedule whose script is passed inline as `options.script`:
 
-  ```js workflow
-  // Tail the job log without a model; job-runner runs the echo/tail command.
-  return runs.run("tail", { agent: "job-runner", task: `JOB_CMD: echo "TICK $(date -u +%FT%TZ)"; tail -n 3 ${args.log}` });
+  ```
+  subagent({action:"schedule.create", id:"<job>-tail", args:{log:"<log>"}, options:{every:"10m", script:"return runs.run(\"tail\", { agent: \"job-runner\", cwd: \"<dir>\", task: `JOB_CMD: echo \"TICK $(date -u +%FT%TZ)\"; tail -n 3 ${args.log}` });"}})
   ```
 
-  If the call answers that the block never reached it, repeat the call with the `return ...` line passed as `options:{script:"..."}` in place of `workflow:true`.
+  Each tick runs `job-runner` (no model) to print a timestamp and the log's last 3 lines. The child agent is looked up from `cwd`: for a user- or package-scope agent like `job-runner` any directory works, so use the job's directory; `cwd` matters for lookup only with project-scope agents, and it is also the base for a relative `<log>` (prefer an absolute path). Prefer this over the alternative `workflow:true` plus a fenced `js workflow` block in the same reply: on some hosts text after a tool call reaches the tool only as a summary without code blocks, so that form fails with "needs one fenced block ... found 0".
 
 - When the job finishes (success or failure), delete the tail schedule with `subagent({action:"schedule.delete", id:"<job>-tail"})`; otherwise it fires forever. Each tick costs no model tokens but does cost you a turn.
 - Do not restart the gateway while a long job should keep running; the restart will very likely kill it.
-- On a quiet job (logging to a file) expect a "no observed activity for 60s" notice about once a minute. It is benign; do not steer the job (external-cli runs cannot be steered anyway).
+- On a quiet job (logging to a file) expect a "no observed activity for 60s" notice about once a minute. It is benign and not a user-facing event: do not reply to it or post about it (end that turn with an empty reply, which posts nothing), and do not steer the job (external-cli runs cannot be steered anyway).
 - Completion and tick notices post to the channel root, not to the thread where the job was started; mention the job name in your reply so the operator can connect them.
