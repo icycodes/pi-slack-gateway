@@ -46,9 +46,15 @@
     "typescript": "^5.9.3"
   },
   "files": [
+    "agents",
     "bin",
     "dist",
     "prompts",
     "deploy"
-  ]
+  ],
+  "pi-subagents": {
+    "agents": [
+      "./agents"
+    ]
+  }
 }

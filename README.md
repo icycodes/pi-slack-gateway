@@ -42,6 +42,9 @@ flowchart LR
   agent; images are also passed inline when the model accepts images.
 - **Sending files**: the agent can send a local file back by putting a directive on its
   own line in its final reply (see [Sending files to Slack](#sending-files-to-slack)).
+- **Long-running jobs**: the agent can start a long command (an eval, a training run) in
+  the background and is woken when it ends, with the real exit code (see
+  [Monitoring long-running jobs](#monitoring-long-running-jobs)).
 - **Extension dialogs**: `select`/`confirm` become buttons; `input`/`editor` are answered
   by your next message.
 - **Commands**: `!help`, `!status`, `!stop`, `!new`, `!later`, `!model`, `!thinking`,
@@ -235,6 +238,41 @@ Example with [agent-browser](https://github.com/vercel-labs/agent-browser):
 
 Slack shows "Here is the login page." followed by the uploaded image with its caption.
 
+## Monitoring long-running jobs
+
+Ask the agent to run something long and tell you when it finishes. It launches the
+command as an async `subagent` run of **`job-runner`**, a model-free agent shipped in
+[`agents/job-runner.md`](agents/job-runner.md), then ends its turn; the completion notice
+wakes it and it reports back. A failed command is reported as a failure with its exit
+code (a model child running `bash` would exit 0 and report "completed"). Optionally a
+recurring `schedule.create` tick tails the job's log every 10 minutes. The recipe the
+agent follows is in [`prompts/manager.md`](prompts/manager.md).
+
+`job-runner` reads the task line `JOB_CMD: <command>`, runs it with `bash -c`, saves the
+output under `$TMPDIR/pi-job-runner/` (default `/tmp`), and exits with the command's exit
+code. It never calls a model. Its default run limit is effectively unlimited (2147483647 ms,
+about 24.85 days); the agent bounds a specific job with `options.timeoutMs`.
+
+It needs `pi-subagents`. pi-subagents finds the agent through the `pi-subagents.agents`
+key in this package's `package.json`, as a package agent at user scope: no copy step,
+no project trust needed, and it resolves from any binding's directory. That covers a
+global npm install (`npm install -g pi-slack-gateway`); pi-subagents locates it with
+`npm root -g`, so `npm` must be on the gateway's `PATH` (and `PI_OFFLINE` unset). It does
+not cover `npx`, a non-global install, or a git clone. In those cases copy the agent into
+your user agents directory:
+
+```sh
+mkdir -p ~/.pi/agent/agents && cp agents/job-runner.md ~/.pi/agent/agents/
+```
+
+Do not put it in a project's `.pi/agents/`: gateway sessions run `pi --mode rpc`, which
+cannot answer pi's project-trust prompt, so project agents are not loaded. To turn the
+agent off, set `"subagents": { "agentOverrides": { "job-runner": { "disabled": true } } }`
+in `~/.pi/agent/settings.json`.
+
+Caveats: restarting the gateway will very likely kill a running job; completion and tick
+notices post to the channel root, not the thread the job was started from.
+
 ## Security notes
 
 The agent runs with your user's permissions and pi's tools (shell included) without
@@ -242,6 +280,14 @@ interactive approval. Keep `allowedUsers` to yourself, keep `allowedRoots` tight
 treat the Slack workspace as part of your trust boundary. Slack tokens are removed from
 the environment passed to pi. The `[send-file: …]` directive can upload any regular
 file your user can read, so a reply that names a secret file would post it to Slack.
+
+`job-runner` is a shell-execution path. With the default tool allowlist the manager
+agent has no `bash`, but it can launch `job-runner`, which runs any command it is given
+without a model and without approval. This is intended (the agent is told to use it only
+for jobs you ask for), but it means the default allowlist does not keep shell commands
+away from the Slack-driven agent; subagents could run them anyway. Disable the agent as
+described in [Monitoring long-running jobs](#monitoring-long-running-jobs) if you do not
+want it.
 
 ## Development
 
@@ -256,7 +302,7 @@ npm run pack:check   # build, then dry-run `npm pack` to list the tarball conten
 
 Tests and `npm start` run the TypeScript sources and never need `dist/`. The published
 package contains `bin/` (a small plain-JS launcher that checks the Node version before
-loading the app), `dist/`, `prompts/` and `deploy/`.
+loading the app), `agents/`, `dist/`, `prompts/` and `deploy/`.
 
 Source map: `src/main.ts` (entry), `src/slack.ts` (Bolt adapter), `src/gateway.ts`
 (routing, `!bind`, attachments), `src/session.ts` (one pi process per binding: runs,
